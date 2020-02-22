@@ -311,7 +311,7 @@ renderPlot({
   })
 ```
 
-# Simulation
+# Simulation (Ansparen und Entsparen)
 ## Sidebar {.sidebar}
 
 ```{r}
@@ -323,8 +323,8 @@ numericInput("start.capital",
             step = 1000)
 
 numericInput("monthly.spendings", 
-            "Monatliche Sparrate:", 
-            min = 0, 
+            "Monatliche Spar- bzw. Entsparrate:", 
+            min = -2000, 
             max = 2000, 
             value = 500,
             step = 50)
@@ -351,7 +351,7 @@ numericInput("annual.inflation",
             step = .1)
     
 numericInput("annual.inf.std.dev", 
-            "Volatitilität der Inflation (in %):", 
+            "Volatilität der Inflation (in %):", 
             min = 0, 
             max = 5.,
             value = 1.5,
@@ -460,7 +460,7 @@ renderPlot({
   nav = getNav()
   
   ggplot(nav, aes(x=year, y=capital, group=simulation)) +
-    geom_line(alpha=.3) +
+    geom_line(alpha=.2) +
     geom_area(aes(x=year, y=spendings), fill = 'darkred', alpha=.4) +
     labs(x='Jahr', y='Vermögen in EUR') +
     scale_x_continuous(breaks = seq(0,40,5),  minor_breaks = seq(0,40,1)) +
