@@ -1,0 +1,471 @@
+---
+title: "Sparplan-Rechner"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: readable
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(data.table)
+library(tidyverse)
+library(slider)
+```
+
+# Rechner
+## Sidebar {.sidebar}
+
+```{r}
+sliderInput("start", "Startkapital", 
+            value = 0,
+            min = 0,
+            max = 100000,
+            step = 1000)
+
+sliderInput("sparen", "Monatliche Sparrate",
+            value = 500,
+            min = 0,
+            max = 2500,
+            step = 50)
+            
+sliderInput("dynamik", "Anspar-Dynamik (%)",
+            value = 0,
+            min = 0,
+            max = 3,
+            step = .5)
+
+sliderInput("ziel", "Vermögensziel",
+            value = 300000,
+            min = 0,
+            max = 2000000,
+            step = 50000)
+
+hr()
+
+sliderInput("rendite", "Erwartete Rendite",
+            value = 5,
+            min = 0,
+            max = 10,
+            step = .1)
+```
+
+## Zeile 1 {.tabset .tabset-fade}
+### Grafik
+
+```{r}
+rechnerData = reactive({
+  
+  rechnerData = data.table::data.table(Jahr = seq(0,35,1))
+
+  rechnerData[, Einzahlungen := ifelse(Jahr == 0, input$start,
+                              input$sparen*12*(1+input$dynamik/100)^(Jahr-1))]
+        
+  rechnerData[, cumEinzahlungen := cumsum(Einzahlungen)]
+        
+  tmp = data.table::data.table()
+        
+  for (year in 1:nrow(rechnerData)) {
+    tmpStore = if (year == 1) {
+    data.table::data.table(cumWert = rechnerData[year, Einzahlungen])
+    } else {
+      data.table::data.table(cumWert = tmp[year-1, cumWert]*(1+input$rendite/100) + rechnerData[year, Einzahlungen])
+      }
+    
+    tmp = rbind(tmp, tmpStore)
+    }
+        
+    rechnerData = cbind(rechnerData, tmp)
+    return(rechnerData)
+})
+```
+
+```{r}
+renderPlot({
+  rechnerData = rechnerData()
+        
+    closest = findInterval(input$ziel, rechnerData[, cumWert]) # das Jahr, was dem Ziel am naechsten kommt
+    ###-------------------------------
+
+    ## dynamischer Plot
+    ggplot(data=rechnerData, aes(Jahr, cumWert)) +
+      # kumuliertes Vermögen
+      geom_col(fill = 'darkgreen', alpha = .5) +
+      # Einzahlungen
+      geom_col(data=rechnerData, aes(Jahr, cumEinzahlungen)) +
+      #-------------
+      # Ziel
+      geom_hline(yintercept = input$ziel, size=1, alpha = .5, color ='darkgreen') +
+      # Wann erreicht?
+      geom_vline(xintercept = closest, size=1, alpha = .5, color ='darkred') +
+      # Beschriftungen
+      geom_text(x = closest, y = 0, hjust = 1.1, vjust = 1, label = paste(closest, "Jahre"), size = 5) +
+      geom_text(x = 0, y = input$ziel, hjust = 0, vjust = -.5, label = paste(input$ziel, "Euro"), size = 5) +
+      geom_point(x = closest, y = input$ziel, color = 'darkred', shape = 18, size = 5) +
+      scale_x_continuous(breaks = seq(0,35,5),  minor_breaks = seq(0,35,1)) +
+      scale_y_continuous(name = "Vermögen in EUR", breaks = seq(0,2000000,200000), minor_breaks = seq(0,2000000,100000), limits = c(0,2000000), labels = scales::label_number_si()) +
+      theme_minimal()
+      #------------------------------------------------
+    })
+```
+
+### Tabelle
+
+```{r}
+DT::renderDataTable({
+  rechnerData = rechnerData()
+    rechnerData[, ':=' (Einzahlungen = round(Einzahlungen, 2), cumEinzahlungen = round(cumEinzahlungen, 2), cumWert = round(cumWert,2))]
+    setnames(rechnerData, old = 'cumEinzahlungen', new = 'Einzahlungen (kumuliert)')
+    setnames(rechnerData, old = 'cumWert', new = 'Vermögen (kumuliert)')
+    rechnerData
+})
+```
+
+## Zeile 2
+### Faktor
+
+```{r}
+  renderValueBox({
+        
+        rechnerData = rechnerData()
+        
+        faktor = paste(rechnerData[Jahr == 35, round(cumWert/cumEinzahlungen, 1)], "-fach") 
+        
+        valueBox(faktor, caption = 'Faktor, um den sich die Gesamtheit deiner Einzahlungen vervielfacht hat',  
+                 icon = "fa-angle-double-up", color = 'info'
+                 )
+            
+    })
+```
+
+### Verzinsung
+
+```{r}
+  renderValueBox({
+        
+        rechnerData = rechnerData()
+        
+        verzinsung = paste(rechnerData[Jahr == 35, round(((cumWert/cumEinzahlungen)^(1/35)-1)*100, 2)], "%") 
+        
+        valueBox(verzinsung, caption = 'Jährlicher, durchschnittlicher Zinsatz, den die kompletten Einzahlungen erfahren haben',  
+                 icon = "fa-percent", color = 'info'
+                 )
+            
+    })
+```
+
+### Einzahlungen 
+
+```{r }
+ renderValueBox({
+        
+        rechnerData = rechnerData()
+        
+        einzahlungen = paste(rechnerData[Jahr == 35, round(cumEinzahlungen,2)], '€') 
+        
+        valueBox(einzahlungen,
+           icon = "fa-piggy-bank", color = 'warning')
+            
+    })
+```
+
+### Endvermögen
+
+```{r}
+  renderValueBox({
+        
+    rechnerData = rechnerData()
+        endvermoegen = paste(rechnerData[Jahr == 35, round(cumWert,2)], "€") 
+        
+        valueBox(endvermoegen,
+                 icon = "fa-seedling", color = 'success'
+                 )
+            
+    })
+```
+
+# Realdaten 
+## Sidebar {.sidebar}
+
+```{r}
+selectInput("sparart", "Wähle die Sparart aus, die für dich relevant ist:",
+                c("Einmalzahlung" = "einmal",
+                  "Sparplan" = "sparplan"))
+```
+
+## Zeile 1 {data-height=1}
+### Ein fiktiver Euro wird angelegt
+
+Aus dem Sparrechner unter dem Registerpunkt *Modell* ging hervor, dass es im Wesentlichen zwei Möglichkeiten gibt, Geld anzulegen. Erstens: Man tätigt eine Einmaleinzahlung im Jahr 0 und schaut, wie sich das Geld entwickelt. Zweitens man spart in regelmäßigen Abständen einen gewissen Betrag. Der kann fix oder dynamisch sein, also, mit der Zeit steigen.
+
+Hier soll veranschaulicht werden, wie sich ein fiktiver Euro entwickelt, je nach dem, wie man ihn angelegt hat: als **Einmaleinzahlung** oder als **Sparplan** (jährlich $\frac {1}{35}$ Euro 35 Jahre lang).
+
+Das **Endvermögen** entspricht dabei dem Faktor, um den sich die gesamte Summe aller Einzahlungen **vervielfacht** hat. Möchte man die absoluten Vermögenswerte für konkrete Einzahlungen berechnen, gilt für die Einmalzahlung folgende Formel: `Einmalzahlung*Endvermögen`. Für den Sparplan gilt: `Jahressparbetrag*35*Endvermögen`.
+
+Die **Rendite** meint hier die durchschnittliche, jährliche Rendite, die die Summe aller Einzahlungen über 35 Jahre erfahren hat. 
+
+```{r plotDaten erstellen}
+# import MSCI Daten
+msci = fread('msciWorld.csv', header = F)
+
+msci = data.table(Kurs = msci[, V1])
+msci = msci[c(1,(12*(1:50))+1)] # nur die jährlichen Daten
+msci = msci[, .(Jahr=0:50, Kurs)]
+
+# Leere Objekte
+dt = data.frame(x = 0, y = 1)
+plot = ggplot(data = dt, aes(x = x, y = y)) +
+   geom_blank()
+msciSamples = data.table(NULL)
+
+# Pro sample Kurse und jährliche Renditen berechnen
+for (i in 1:nrow(msci)) { 
+  tmp = msci[i:(i+35), .(sample = as.factor(i), 
+                          Jahr = as.factor(0:35), 
+                          Kurs = Kurs/msci[i, Kurs]
+                          )
+              ]
+  
+  vec = slide(tmp$Kurs, ~.x, .before = 1)
+  Rendite = NULL
+  
+  for (j in 1:36) {
+    storage = ifelse(j == 1, 1, vec[[j]][2]/vec[[j]][1]) %>% data.table(Rendite = .)
+    Rendite = rbind(Rendite, storage)
+    }
+  
+  tmp = cbind(tmp, Rendite)
+
+  msciSamples = rbind(msciSamples, tmp)
+}
+###---------------------------
+
+# Plot-Daten für Einmaleinzahlung
+plotData_einmal = msciSamples[, .(sample, Jahr, Kurs, Rendite, cumWert = Kurs, sparart = 'einmal')]
+plotData_einmal[1:36, cumEinzahlungen := 1]
+plotData_einmal[, Jahr := as.numeric(Jahr)-1]
+###---------------------------
+
+# Plot-Daten jährliche Sparrate
+cumWert_ij = NULL
+cumWert_i = as.vector(NULL)
+cumWert = as.vector(NULL)
+
+Einzahlung = 1/35
+
+
+
+  for (ithsam in 1:nlevels(msciSamples$sample)) {
+    for (jthyear in 1:nlevels(msciSamples$Jahr)) {
+      
+     cumWert_ij = ifelse(jthyear == 1, 0, 
+                   msciSamples[sample == ithsam & Jahr == (jthyear-1), Rendite]*cumWert_i[jthyear-1] + Einzahlung)
+      
+     cumWert_i = c(cumWert_i, cumWert_ij)
+    }
+    
+    cumWert = c(cumWert, cumWert_i)
+    cumWert_ij = NULL
+    cumWert_i = NULL
+  }
+
+plotData_raten = msciSamples[, ':=' (cumWert = cumWert, sparart = 'sparplan')]
+plotData_raten[1:36, cumEinzahlungen := (1/35)*(0:35)]
+plotData_raten[, Jahr := as.numeric(Jahr)-1]
+
+plotData = rbind(plotData_einmal,plotData_raten)
+###----------------------------
+```
+
+### Endvermögen nach 35 Jahren
+
+```{r}
+
+max_value = plotData[sparart=='einmal', max(Jahr)]
+  
+renderPlot({
+  ggplot(data=plotData[Jahr == 35], aes(cumWert, fill = sparart)) +
+    geom_histogram(na.rm = T, binwidth = 2) +
+    labs(x='Endvermögen', y='Absolute Häufigkeit') +
+    scale_fill_grey(name='Sparart', labels=c('Einmaleinzahlung', 'Sparraten')) +
+    scale_x_continuous(breaks = seq(0,max_value,2), minor_breaks = seq(0,max_value,1)) +
+  theme_minimal() 
+})
+```
+
+## Zeile 3 {data-height=3}
+### MSCI World von 1969 bis 2019 (Total Return Index, US-Dollar, vor Inflation)
+
+```{r plots}
+renderPlot({
+  plot +
+    geom_line(data=plotData[sparart==input$sparart], aes(x=Jahr, y=cumWert, group=sample, color=sample), alpha =.7) +
+    geom_area(data=plotData[sparart==input$sparart], aes(x=Jahr, y=cumEinzahlungen), fill='darkred', alpha=.4) +
+    labs(x='Jahr', y='Vermögen (Vervielfachung)') +
+    scale_color_grey() +
+    scale_x_continuous(breaks = seq(0,35,5),  minor_breaks = seq(0,35,1)) +
+    theme_minimal() +
+    theme(legend.position="none")
+  })
+```
+
+# Simulation
+## Sidebar {.sidebar}
+
+```{r}
+numericInput("start.capital", 
+            "Startkapital", 
+            min = 0, 
+            max = 100000, 
+            value = 0,
+            step = 1000)
+
+numericInput("monthly.spendings", 
+            "Monatliche Sparrate:", 
+            min = 0, 
+            max = 2000, 
+            value = 500,
+            step = 50)
+    
+numericInput("annual.mean.return", 
+            "Jährliche Rendite (in %):", 
+            min = 0, 
+            max = 10, 
+            value = 7,
+            step = .1)
+    
+numericInput("annual.ret.std.dev", 
+            "Volatilität des Portfolios (in %):", 
+            min = 0, 
+            max = 25, 
+            value = 10, 
+            step = .1)
+    
+numericInput("annual.inflation", 
+            "Inflation (in %):", 
+            min = 0, 
+            max = 5, 
+            value = 2,
+            step = .1)
+    
+numericInput("annual.inf.std.dev", 
+            "Volatitilität der Inflation (in %):", 
+            min = 0, 
+            max = 5.,
+            value = 1.5,
+            step = .1)
+    
+sliderInput("n.sim", 
+            "Anzahl der Simulationen:", 
+            min = 0, 
+            max = 100, 
+            value = 30)
+
+# sliderInput("n.obs", 
+#             "Betrachtungszeitraum (in Jahren):", 
+#             min = 0, 
+#             max = 40, 
+#             value = 35)
+
+actionButton("sim", "Simuliere neu!")
+```
+
+## Zeile 1
+###
+
+```{r inputs}
+# Function that generates scenarios and computes NAV.
+getNav = reactive({ 
+  
+  input$sim
+  
+  #-------------------------------------
+  # Inputs
+  #-------------------------------------
+  
+  isolate({
+    
+    # Initial capital
+    start.capital = input$start.capital
+    
+    # Investment
+    annual.mean.return = input$annual.mean.return / 100
+    annual.ret.std.dev = input$annual.ret.std.dev / 100
+    
+    # Inflation
+    annual.inflation = input$annual.inflation / 100
+    annual.inf.std.dev = input$annual.inf.std.dev / 100
+    
+    # spendings
+    monthly.spendings = input$monthly.spendings
+    annual.spendings = 12 * monthly.spendings
+    
+    # Number of observations (in Years)
+    n.obs = 35 # input$n.obs
+    
+    # Number of simulations
+    n.sim = input$n.sim
+    
+    #-------------------------------------
+    # Simulation
+    #-------------------------------------
+  
+    # define years and simulation variable
+    nav = data.table(simulation = rep(1:n.sim, each = n.obs+1) %>% as.factor(), 
+                   year = rep(0:n.obs, n.sim) %>% as.factor())
+  
+    # simulate returns
+  
+    for (i in 1:n.sim) {
+      nav[((i-1)*(n.obs+1)+1):(i*(n.obs+1)), ':=' (
+      invest.return = rnorm(n.obs+1, mean = annual.mean.return, sd = annual.ret.std.dev),
+      inflation.return = rnorm(n.obs+1, mean = annual.inflation, sd = annual.inf.std.dev)
+      )]
+      }
+
+    # simulate capital growth
+    capital_ij = NULL
+    capital_i = as.vector(NULL)
+    capital = as.vector(NULL)
+  
+    for (ithsam in 1:n.sim) {
+      for (jthyear in 1:(n.obs+1)) {
+      
+       capital_ij = ifelse(jthyear == 1, start.capital,
+                            nav[simulation == ithsam & year == (jthyear-1), (1 + invest.return - inflation.return)]*capital_i[jthyear-1] + annual.spendings)
+       capital_i = c(capital_i, capital_ij)
+       }
+    
+      capital = c(capital, capital_i)
+      capital_ij = NULL
+      capital_i = NULL
+      }
+  
+    nav[, capital := capital]
+    nav[1:36, spendings := c(start.capital, start.capital+annual.spendings*(1:35))]
+    nav[, year := as.numeric(year)-1]
+    
+    return(nav)  
+    })
+  })
+
+#-------------------------------------
+# Plot
+#-------------------------------------
+
+renderPlot({
+  
+  nav = getNav()
+  
+  ggplot(nav, aes(x=year, y=capital, group=simulation)) +
+    geom_line(alpha=.3) +
+    geom_area(aes(x=year, y=spendings), fill = 'darkred', alpha=.4) +
+    labs(x='Jahr', y='Vermögen in EUR') +
+    scale_x_continuous(breaks = seq(0,40,5),  minor_breaks = seq(0,40,1)) +
+    scale_y_continuous(labels = scales::label_number_si()) +
+    scale_color_grey() + 
+    theme_minimal()
+  })
+```

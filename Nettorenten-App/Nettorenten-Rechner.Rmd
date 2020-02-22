@@ -1,0 +1,154 @@
+---
+title: "Nettorenten-Rechner"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: readable
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(data.table)
+library(tidyverse)
+
+source("netto_fun.R")
+```
+
+## Sidebar {.sidebar}
+
+```{r inputRechner}
+numericInput(
+  'Rente', 'Monatliche Bruttorente',
+  value = 1000, min = 300, max = 3000, step = 50)
+
+numericInput(
+  "Grundfreibetrag", "Höhe des Grundfreibetrags",
+  value = 9408, min = 9000, max = 12000, step = 1)
+
+numericInput(
+  "Zone2", "Grenze der Zone 2",
+  value = 14532, min = 13000, max = 16000, step = 1)
+
+sliderInput(
+  'GKV', 'Beitrag Krankenversicherung (%)',
+  value = 14.6, min = 0, max = 20, step = .1)
+
+sliderInput(
+  'ZusatzB', 'Individueller Zusatzbeitrag der Krankenkasse (%)',
+  value = 1.1, min = 0, max = 2, step = .1)
+
+sliderInput(
+  'PV', 'Beitrag Pflegeversicherung (%)',
+  value = 3.05, min = 0, max = 5, step = .05)
+```
+
+##
+
+### Allgemeine Infos
+
+#### Kein Rentenfreibetrag ab 2040
+Auf die monatliche Bruttorente müssen Abgaben und Einkommensteuer entrichtet werden. Zudem wird es so sein, dass bei künftigen Rentner\*innen, die ab 2040 in Rente gehen werden, der gesamte Bruttorentenbetrag steuerpflichtig wird. D.h. der gesamte Betrag wird zur Berechnung der Einkommensteuer herangezogen. Ob tatsächlich eine Einkommensteuer zu entrichten sein wird, folgt daraus nicht zwangsläufig. 
+
+Denn das zu versteuernde Einkommen (die Rente zählt als Einkommen) muss dazu den Grundfreibetrag von 9408 Euro (2020) überschreiten.
+
+Der sog. *Rentenfreibetrag* (Rentner*innen bis 2039 Rentenbeginn bekommen zusätzlich zum Grundfreibetrag einen individuell zu ermittelnden Rentenfreibetrag) entfällt also ab 2040.
+
+#### Berechnung des zu versteuernden Einkommens
+
+Zunächst einmal sind Rentner\*innen, wie z.B. normale Arbeitnehmer\*innen, sozialversicherungspflichtig. Sie zahlen auf ihre Bruttorente Beiträge für die Kranken- (inkl. Zusatzbeitrag) und Pflegeversicherung (aber nicht in die Rentenversicherung, was ziemlich unsinnig wäre, aber nicht abwegig). Die Beitragssätze liegen 2020 bei einer Höhe von 14,6 % (+ Zusatzbeitrag von durchschnittlich 1,1 %) für die Krankenversicherung und bei 3,05 % für die Pflegeversicherung, wobei die Krankenversicherungsbeiträge nur zur Hälfte von der Rentnerin getragen werden müssen.
+
+Die genannten Beiträge können zu 100 % als sog. *Vorsorgeaufwendungen* von der Bruttorente abgezogen werden. Darüberhinaus kann für Rentner*innen eine Werbungskosten-Pauschale in Höhe von 102 Euro sowie die Sonderausgaben-Pauschale mit 36 Euro abgezogen werden. 
+
+So ergibt sich das zu versteuernde Einkommen. Der über den Grundfreibetrag hinausschießende Teil des zu versteuernden Einkommens wird gemäß dem [Einkommensteuertarif](http://www.gesetze-im-internet.de/estg/__32a.html) besteuert - wie bei *normalen* Erwerbstätigen. Zudem ist die Rentnerin in dem Fall zur Abgabe einer Steuererklärung verpflichtet.
+
+#### Dieser Rechner
+
+Dieser Rechner berechnet die Nettorente, die aus der Bruttorente abzüglich Vorsorgeaufwendungen und eventuell anfallender Einkommensteuer besteht. Die Nettorenten sind dieselben wie [hier](https://www.finanzrechner.org/sonstige-rechner/rentenbesteuerungsrechner/), nur dass dort keine Zusatzbeiträge für die Krankenversicherung berücksichtigt werden. Beachte, dass du auf der verlinkten Seite einen Renteneintritt ab 2040 auswählen musst, da sonst Rentenfreibeträge miteinbezogen werden, und sich die Ergebnisse von denen dieses Rechners unterscheiden.
+
+Viel Spaß beim Ausprobieren!
+
+Weitere Quelle: https://www.smart-rechner.de/rentenbesteuerung/rechner.php
+
+### Grafik
+
+```{r}
+dt = data.frame(x = 0, y = 1)
+Zone3 = 57051
+
+EG = 45; ZF = 1; RF = 1; RW = mean(c(32.03, 33.05))
+StandardRente = EG*ZF*RF*RW
+
+###-------------
+# Plot
+###-------------
+
+renderPlot({
+  
+  IndividualRente = input$Rente
+  NettoIndividualRente = 
+    NettoRente(IndividualRente, input$Grundfreibetrag, input$Zone2,
+               input$GKV, input$ZusatzB, input$PV)
+  
+  NettoStandardRente = NettoRente(StandardRente, input$Grundfreibetrag, input$Zone2, input$GKV, input$ZusatzB, input$PV)
+  
+  rentenData = data.table(Rentnerin = c('Deine Rente', 'Deine Rente', 'Die Standardrente 2019', 'Die Standardrente 2019'),
+                          BruttoRente = c(IndividualRente, IndividualRente, StandardRente, StandardRente),
+                          NettoRente = c(IndividualRente, NettoIndividualRente, StandardRente, NettoStandardRente),
+                          BruttoNetto = c('Brutto', 'Netto', 'Brutto', 'Netto')
+                          )
+  
+  ggplot(data = dt, aes(x = x, y = y)) + # dummy variables
+    # Linie Bruttorente
+    geom_segment(x = 0, y = 0, xend = 3000, yend = 3000, color ='grey') +
+    # Zonengrenzen
+    geom_vline(xintercept = input$Grundfreibetrag/12, color ='grey') +
+    geom_vline(xintercept = input$Zone2/12, color ='grey') +
+    #geom_vline(xintercept = (Zone3+Pausch)/12, color ='grey') +
+    # Linie Nettorente
+    stat_function(fun = NettoRente, color ='grey') +
+    stat_function(fun = RenteEKS, color ='grey') +
+    # Renten
+    geom_point(data=rentenData, aes(x = BruttoRente, y = NettoRente, color=Rentnerin), shape=18, size=5, alpha=.5) +
+    scale_x_continuous(name = 'Monatliche Bruttorente (in Euro)', minor_breaks = seq(0,3000,200), limits = c(0, 3000)) +
+    scale_y_continuous(name = 'Monatliche Nettorente (in Euro)', minor_breaks = seq(0,3000,200), limits = c(0, 3000)) +
+    coord_equal() +
+    theme_minimal() +
+    theme(legend.position="bottom")
+  })
+```
+
+##
+
+### Bruttorente
+
+```{r}
+  renderValueBox({
+        
+    IndividualRente = input$Rente
+        
+    valueBox(paste(IndividualRente, 'Euro'), caption = 'Bruttorente',  
+                 icon = "fa-battery", color = 'success'
+                 )
+            
+    })
+```
+
+### Nettorente
+
+```{r}
+  renderValueBox({
+        
+    IndividualRente = input$Rente
+    NettoIndividualRente = 
+    NettoRente(IndividualRente, input$Grundfreibetrag, input$Zone2,
+               input$GKV, input$ZusatzB, input$PV)
+    anteil = 100-(round(NettoIndividualRente/IndividualRente*100, 2))
+        
+    valueBox(paste(NettoIndividualRente, 'Euro'), caption = paste('Nettorente (', anteil, '% Abgaben und Steuern )'),  
+                 icon = "fa-battery-3", color = 'warning'
+                 )
+            
+    })
+```
