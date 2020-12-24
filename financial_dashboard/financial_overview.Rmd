@@ -1,0 +1,145 @@
+---
+title: "Einnahmen, Ausgaben und Investitionen"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    source_code: embed
+    orientation: row
+    vertical_layout: fill
+    theme: readable
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(data.table)
+library(tidyverse)
+library(plotly)
+```
+
+Input {.sidebar}
+-----------------------------------------------------------------------
+
+```{r inputRechner}
+checkboxGroupInput("year", h6("Jahr(e) wählen..."), 
+                   choices = 2019:2021,
+                   selected = 2020)
+```
+
+Row {.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### Liquiditätsentwicklung
+
+```{r}
+finData = fread("financial_overview.csv")
+finData[, ":=" (out = -1*out, invest = as.numeric(-1*invest))]
+#finData = finData[year != 2019]
+
+inOutData = melt(finData, id.vars = c("year", "date"), measure.vars = c("in", "out", "invest"))
+inOutData[, ":=" (year = as.factor(year))]
+
+inOutData[, ":=" (date = factor(date, levels = c("Jan", "Feb", "Mrz", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"))
+                  )]
+liqData = finData[, .(year, date, 
+                        value = finData$`in` + finData$out + finData$invest)]
+liqData[, cumvalue := cumsum(value), by = year]
+
+renderPlotly(
+  
+  ggplot(inOutData[year %in% input$year], aes(date, value)) +
+    geom_col(aes(fill = variable), position = "dodge") +
+    geom_hline(yintercept = 0, alpha = .5) +
+    geom_line(data = liqData[year %in% input$year], aes(date, cumvalue, group = 1), color = "grey40") +
+    geom_point(data = liqData[year %in% input$year], aes(date, cumvalue), color = "grey40", alpha = .5) +
+    facet_grid(.~year) +
+    scale_fill_manual(values = c("#a3ccb1", "#cc8f8f", "#f2e7c7")) +
+    labs(x = "", y = "Euro") +
+    theme_classic() +
+   theme(legend.position = "none", strip.background = element_rect(fill = "grey95", color = "white"))
+  )
+```
+
+### Depot
+```{r}
+depotInData = melt(finData, id.vars = c("year"), measure.vars = c("Eurogov Germany 10+", "MSCI World SRI", "MSCI EM SRI", "Cash"))
+depotInData[, ":=" (year = as.factor(year))]
+depotInData = melt(finData, id.vars = c("year"), measure.vars = c("Eurogov Germany 10+", "MSCI World SRI", "MSCI EM SRI", "Cash"))
+depotInData[, ":=" (year = as.factor(year))]
+
+renderPlotly({
+  
+  depotInData = depotInData[year %in% input$year, .(value = sum(value, na.rm = T)), by = variable]
+  
+  ggplot(depotInData, aes(x = reorder(variable, value), y = value)) +
+    geom_hline(yintercept = max(depotInData[variable %in% "Eurogov Germany 10+"]$value)/2, color ="grey") +
+    geom_segment(aes(xend=reorder(variable, value), y = 0, yend = value), color ="grey") +
+    geom_point(color = "#f2e7c7", size = 4) +
+    labs(x = "", y = "") +
+    coord_flip() +
+    theme_classic() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  })
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### Gesamteinnahmen
+
+```{r}
+renderGauge({
+  totIn = inOutData[year %in% input$year & variable == "in", sum(value)] %>% round(., 0)
+    totOut = inOutData[year %in% input$year & variable == "out", sum(value)*(-1)] %>% round(., 0)
+    totInvest = inOutData[year %in% input$year & variable == "invest", sum(value)*(-1)]
+    
+    totUeber = totIn - totOut - totInvest
+    
+    gauge(totIn,
+          min = 0, 
+          max = totIn, 
+          sectors = gaugeSectors(success = c(1+totOut, totIn), 
+                                 danger = c(1+totInvest, totOut),
+                                 warning = c(0, totInvest))
+    )
+  })
+```
+
+### Gesamtausgaben
+
+```{r}
+renderGauge({
+  totIn = inOutData[year %in% input$year & variable == "in", sum(value)] %>% round(., 0)
+    totOut = inOutData[year %in% input$year & variable == "out", sum(value)*(-1)] %>% round(., 0)
+    totInvest = inOutData[year %in% input$year & variable == "invest", sum(value)*(-1)]
+    
+    totUeber = totIn - totOut - totInvest
+    
+    gauge(totOut,
+          min = 0, 
+          max = totIn, 
+          sectors = gaugeSectors(success = c(1+totOut, totIn), 
+                                 danger = c(1+totInvest, totOut),
+                                 warning = c(0, totInvest))
+    )
+  })
+```
+
+### Gesamtinvestitionen
+
+```{r}
+renderGauge({
+  totIn = inOutData[year %in% input$year & variable == "in", sum(value)] %>% round(., 0)
+    totOut = inOutData[year %in% input$year & variable == "out", sum(value)*(-1)] %>% round(., 0)
+    totInvest = inOutData[year %in% input$year & variable == "invest", sum(value)*(-1)]
+    
+    totUeber = totIn - totOut - totInvest
+    
+    gauge(totInvest,
+          min = 0, 
+          max = totIn, 
+          sectors = gaugeSectors(success = c(1+totOut, totIn), 
+                                 danger = c(1+totInvest, totOut+totInvest),
+                                 warning = c(0, totInvest))
+    )
+  })
+```
